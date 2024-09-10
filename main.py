@@ -1,72 +1,42 @@
-import requests
-from bs4 import BeautifulSoup
+import argparse
 import time
-import webbrowser  # Import the webbrowser module
+from check_ticket import check_ticket_status
+from utils import print_initial_message, print_status_message, wait_for_rate_limit
+import webbrowser
 
-# Function to check the webpage
-def check_ticket_status():
-    url = "https://secure.onreg.com/onreg2/bibexchange/?eventid=6277&language=us"
-    response = requests.get(url,verify=False)
+def main(price_limit, rate_limit):
+    # Print the initial message
+    print_initial_message(price_limit, rate_limit)
 
-    # If request is successful
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.content, 'html.parser')
+    search_start_time = time.time()
+    search_attempts = 0
 
-        # Find the relevant part of the page; this will depend on the page's structure
-        # Assuming 'In Progress' status is inside a <button> tag
-        button = soup.find('btn button_cphhalf')
-        # Find all <tr> elements that likely contain ticket information
-        rows = soup.find_all('tr')
-
-        # Extract information from each row
-        for row in rows:
-            # Extract all <td> elements from the current row
-            columns = row.find_all('td')
-
-            if len(columns) == 4:  # Ensure there are enough columns to match your example
-                event_name = columns[0].text.strip()  # Event name (e.g., "CPH Half 2024")
-                bib_number = columns[1].text.strip()  # Bib number (e.g., "11208")
-                price = columns[2].text.strip()  # Price (e.g., "575.00 DKK")
-
-                # Extract the <a> element within the last <td> element
-                button = columns[3].find('a', class_='btn button_cphhalf')
-                if "button_cphhalf" in str(columns[3]):
-                    button_text = columns[3].text.strip()  # Get the text inside the button
-                    button_classes = " ".join(columns[3].get('class', []))  # Get all classes as a string
-
-                    # Print the extracted information
-                    print(f"Event: {event_name}")
-                    print(f"  Bib Number: {bib_number}")
-                    print(f"  Price: {price}")
-                    print(f"  Button Text: '{button_text}'")
-                    print("\n")
-
-                    if 'in progress' not in button_text.lower() :
-                        # Change this to any alert mechanism you prefer
-                        print("Tickets are available!")
-                        with open('html_content.html', 'w') as file:
-                            file.write(str(response.content))
-
-                        with open('Button.html', 'w') as file:
-                            file.write(str(columns[3]))
-
-                        webbrowser.open_new_tab(url)
-                        return True
-                        break
-                    else:
-                        return False
-    else:
-        print("Failed to fetch the webpage.")
-        return False
-
-# Main loop to repeatedly check
-def main():
     while True:
-        if check_ticket_status():
-            break  # Exit the loop if tickets are available
+        # Check for available tickets
+        tickets_found, total_tickets, lowest_price = check_ticket_status(price_limit)
 
-        # Wait for a while before checking again
-        time.sleep(2)  # Check every 60 seconds
+        # If tickets are found that meet the price limit, open browser and exit
+        if tickets_found:
+            print("Tickets found! Opening the browser now...")
+            webbrowser.open_new_tab("https://secure.onreg.com/onreg2/bibexchange/?eventid=6277&language=us")
+            break
+
+        search_attempts += 1
+
+        # Print status message every 10 seconds
+        if time.time() - search_start_time > 10:
+            print_status_message(search_attempts, total_tickets, lowest_price)
+            search_start_time = time.time()  # Reset the timer
+
+        # Wait before next check
+        wait_for_rate_limit(rate_limit)
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Monitor ticket availability for CPH Half 2024")
+    parser.add_argument("--price_limit", type=float, default=600, help="Maximum ticket price (in DKK) to notify for (default is 600 DKK)")
+    parser.add_argument("--rate_limit", type=int, default=2, help="Number of seconds between checks (default is 2 seconds)")
+
+    args = parser.parse_args()
+
+    # Run the main program
+    main(args.price_limit, args.rate_limit)
